@@ -1,4 +1,5 @@
 
+
 <#
 
 .COPYRIGHT
@@ -30,7 +31,8 @@ Requires Microsoft.Graph.Authentication module
     [CmdletBinding()]
     param(
         [string[]]$Scopes = @(
-            "DeviceManagementApps.Read.All"
+            "DeviceManagementConfiguration.ReadWrite.All",
+            "Group.Read.All"
         ),
         [ValidateSet("Global", "USGov", "USGovDod", "China", "Germany")]
         [string]$Environment = "Global"
@@ -203,6 +205,149 @@ Uses the global $GraphEndpoint variable for environment-specific endpoints
 
 ####################################################
 
+function Add-DeviceConfigurationPolicy {
+
+<#
+.SYNOPSIS
+This function is used to add an device configuration policy using the Graph API REST interface
+.DESCRIPTION
+The function connects to the Graph API Interface and adds a device configuration policy
+.EXAMPLE
+Add-DeviceConfigurationPolicy -JSON $JSON
+Adds a device configuration policy in Intune
+.NOTES
+NAME: Add-DeviceConfigurationPolicy
+#>
+
+[cmdletbinding()]
+
+param
+(
+    $JSON
+)
+
+$graphApiVersion = "Beta"
+$DCP_resource = "deviceManagement/deviceConfigurations"
+
+    try {
+
+        if("" -eq $JSON -or $null -eq $JSON){
+
+        write-host "No JSON specified, please specify valid JSON for the Android Policy..." -f Red
+
+        }
+
+        else {
+
+        Test-JSON -JSON $JSON
+
+        $uri = "$global:GraphEndpoint/$graphApiVersion/$($DCP_resource)"
+        Invoke-IntuneRestMethod -Uri $uri -Method POST -Body $JSON
+
+        }
+
+    }
+
+    catch {
+
+    $ex = $_.Exception
+    $errorResponse = $ex.Response.GetResponseStream()
+    $reader = New-Object System.IO.StreamReader($errorResponse)
+    $reader.BaseStream.Position = 0
+    $reader.DiscardBufferedData()
+    $responseBody = $reader.ReadToEnd();
+    Write-Host "Response content:`n$responseBody" -f Red
+    Write-Error "Request to $Uri failed with HTTP Status $($ex.Response.StatusCode) $($ex.Response.StatusDescription)"
+    write-host
+    break
+
+    }
+
+}
+
+####################################################
+
+function Add-DeviceConfigurationPolicyAssignment {
+
+<#
+.SYNOPSIS
+This function is used to add a device configuration policy assignment using the Graph API REST interface
+.DESCRIPTION
+The function connects to the Graph API Interface and adds a device configuration policy assignment
+.EXAMPLE
+Add-DeviceConfigurationPolicyAssignment -ConfigurationPolicyId $ConfigurationPolicyId -TargetGroupId $TargetGroupId
+Adds a device configuration policy assignment in Intune
+.NOTES
+NAME: Add-DeviceConfigurationPolicyAssignment
+#>
+
+[cmdletbinding()]
+
+param
+(
+    $ConfigurationPolicyId,
+    $TargetGroupId
+)
+
+$graphApiVersion = "Beta"
+$Resource = "deviceManagement/deviceConfigurations/$ConfigurationPolicyId/assign"
+
+    try {
+
+        if(!$ConfigurationPolicyId){
+
+        write-host "No Configuration Policy Id specified, specify a valid Configuration Policy Id" -f Red
+        break
+
+        }
+
+        if(!$TargetGroupId){
+
+        write-host "No Target Group Id specified, specify a valid Target Group Id" -f Red
+        break
+
+        }
+
+        $ConfPolAssign = "$ConfigurationPolicyId" + "_" + "$TargetGroupId"
+
+$JSON = @"
+
+{
+  "deviceConfigurationGroupAssignments": [
+    {
+      "@odata.type": "#microsoft.graph.deviceConfigurationGroupAssignment",
+      "id": "$ConfPolAssign",
+      "targetGroupId": "$TargetGroupId"
+    }
+  ]
+}
+
+"@
+
+    $uri = "$global:GraphEndpoint/$graphApiVersion/$($Resource)"
+    Invoke-IntuneRestMethod -Uri $uri -Method POST -Body $JSON
+
+    }
+
+    catch {
+
+    $ex = $_.Exception
+    $errorResponse = $ex.Response.GetResponseStream()
+    $reader = New-Object System.IO.StreamReader($errorResponse)
+    $reader.BaseStream.Position = 0
+    $reader.DiscardBufferedData()
+    $responseBody = $reader.ReadToEnd();
+    Write-Host "Response content:`n$responseBody" -f Red
+    Write-Error "Request to $Uri failed with HTTP Status $($ex.Response.StatusCode) $($ex.Response.StatusDescription)"
+    write-host
+    break
+
+    }
+
+}
+
+####################################################
+
 function Test-JSON {
 
 <#
@@ -214,7 +359,7 @@ The function tests if the JSON passed to the REST Post is valid
 Test-JSON -JSON $JSON
 Test if the JSON is valid before calling the Graph REST interface
 .NOTES
-NAME: Test-JSON
+NAME: Test-AuthHeader
 #>
 
 param (
@@ -248,44 +393,76 @@ $JSON
 
 ####################################################
 
-function Add-ManagedAppPolicy {
+function Get-AADGroup {
 
 <#
 .SYNOPSIS
-This function is used to add an Managed App policy using the Graph API REST interface
+This function is used to get AAD Groups from the Graph API REST interface
 .DESCRIPTION
-The function connects to the Graph API Interface and adds a Managed App policy
+The function connects to the Graph API Interface and gets any Groups registered with AAD
 .EXAMPLE
-Add-ManagedAppPolicy -JSON $JSON
-Adds a Managed App policy in Intune
+Get-AADGroup
+Returns all users registered with Azure AD
 .NOTES
-NAME: Add-ManagedAppPolicy
+NAME: Get-AADGroup
 #>
 
 [cmdletbinding()]
 
 param
 (
-    $JSON
+    $GroupName,
+    $id,
+    [switch]$Members
 )
 
-$graphApiVersion = "Beta"
-$Resource = "deviceAppManagement/managedAppPolicies"
+# Defining Variables
+$graphApiVersion = "v1.0"
+$Group_resource = "groups"
 
     try {
 
-        if("" -eq $JSON -or $null -eq $JSON){
+        if($id){
 
-        write-host "No JSON specified, please specify valid JSON for a Managed App Policy..." -f Red
+        $uri = "$global:GraphEndpoint/$graphApiVersion/$($Group_resource)?`$filter=id eq '$id'"
+        (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
+
+        }
+
+        elseif("" -eq $GroupName -or $null -eq $GroupName){
+
+        $uri = "$global:GraphEndpoint/$graphApiVersion/$($Group_resource)"
+        (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
 
         }
 
         else {
 
-        Test-JSON -JSON $JSON
+            if(!$Members){
 
-        $uri = "$global:GraphEndpoint/$graphApiVersion/$($Resource)"
-        Invoke-IntuneRestMethod -Uri $uri -Method POST -Body $JSON
+            $uri = "$global:GraphEndpoint/$graphApiVersion/$($Group_resource)?`$filter=displayname eq '$GroupName'"
+            (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
+
+            }
+
+            elseif($Members){
+
+            $uri = "$global:GraphEndpoint/$graphApiVersion/$($Group_resource)?`$filter=displayname eq '$GroupName'"
+            $Group = (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
+
+                if($Group){
+
+                $GID = $Group.id
+
+                $Group.displayName
+                write-host
+
+                $uri = "$global:GraphEndpoint/$graphApiVersion/$($Group_resource)/$GID/Members"
+                (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
+
+                }
+
+            }
 
         }
 
@@ -293,7 +470,6 @@ $Resource = "deviceAppManagement/managedAppPolicies"
 
     catch {
 
-    Write-Host
     $ex = $_.Exception
     $errorResponse = $ex.Response.GetResponseStream()
     $reader = New-Object System.IO.StreamReader($errorResponse)
@@ -323,41 +499,60 @@ if (-not (Connect-GraphAPI)) {
 
 ####################################################
 
-$ImportPath = Read-Host -Prompt "Please specify a path to a JSON file to import data from e.g. C:\IntuneOutput\Policies\policy.json"
+# Setting application AAD Group
 
-# Replacing quotes for Test-Path
-$ImportPath = $ImportPath.replace('"','')
+$AADGroup = Read-Host -Prompt "Enter the Azure AD Group name where policies will be assigned"
 
-if(!(Test-Path "$ImportPath")){
+$TargetGroupId = (get-AADGroup -GroupName "$AADGroup").id
 
-Write-Host "Import Path for JSON file doesn't exist..." -ForegroundColor Red
-Write-Host "Script can't continue..." -ForegroundColor Red
+    if($null -eq $TargetGroupId -or "" -eq $TargetGroupId){
+
+    Write-Host "AAD Group - '$AADGroup' doesn't exist, please specify a valid AAD Group..." -ForegroundColor Red
+    Write-Host
+    exit
+
+    }
+
 Write-Host
-break
-
-}
 
 ####################################################
 
-$JSON_Data = gc "$ImportPath"
+$JSON = @"
 
-# Excluding entries that are not required - id,createdDateTime,lastModifiedDateTime,version
-$JSON_Convert = $JSON_Data | ConvertFrom-Json | Select-Object -Property * -ExcludeProperty id,createdDateTime,lastModifiedDateTime,version,"@odata.context",apps@odata.context,deployedAppCount
+    {
 
-$JSON_Apps = $JSON_Convert.apps | select * -ExcludeProperty id,version
+    "displayName":"Windows 10 - Semi-Annual (Targeted) - Assigned",
+    "description":"Windows 10 - Semi-Annual (Targeted) - Assigned",
+    "@odata.type":"#microsoft.graph.windowsUpdateForBusinessConfiguration",
+    "businessReadyUpdatesOnly":"all",
+    "microsoftUpdateServiceAllowed":true,
+    "driversExcluded":false,
+    "featureUpdatesDeferralPeriodInDays":0,
+    "qualityUpdatesDeferralPeriodInDays":0,
+    "automaticUpdateMode":"autoInstallAtMaintenanceTime",
+    "deliveryOptimizationMode":"httpOnly",
 
-$JSON_Convert | Add-Member -MemberType NoteProperty -Name 'apps' -Value @($JSON_Apps) -Force
+        "installationSchedule":{
+        "@odata.type":"#microsoft.graph.windowsUpdateActiveHoursInstall",
+        "activeHoursStart":"08:00:00.0000000",
+        "activeHoursEnd":"17:00:00.0000000"
+        }
 
-$DisplayName = $JSON_Convert.displayName
+    }
 
-$JSON_Output = $JSON_Convert | ConvertTo-Json -Depth 5
+"@
 
+####################################################
+
+$CreateResult = Add-DeviceConfigurationPolicy -JSON $JSON
+
+Write-Host "Software Update Policy created as" $CreateResult.id
 write-host
-write-host "App Protection Policy '$DisplayName' Found..." -ForegroundColor Cyan
-write-host
-$JSON_Output
+write-host "Assigning Software Update Policy to AAD Group '$AADGroup'" -f Cyan
+
+$Assign = Add-DeviceConfigurationPolicyAssignment -ConfigurationPolicyId $CreateResult.id -TargetGroupId $TargetGroupId
+
+Write-Host "Assigned '$AADGroup' to $($CreateResult.displayName)/$($CreateResult.id)"
 Write-Host
-Write-Host "Adding App Protection Policy '$DisplayName'" -ForegroundColor Yellow
-Add-ManagedAppPolicy -JSON $JSON_Output
 
 

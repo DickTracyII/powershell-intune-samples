@@ -7,7 +7,7 @@ languages:
 extensions:
   contentType: samples
   technologies:
-  - Microsoft Graph 
+  - Microsoft Graph
   services:
   - Intune
   createdDate: 4/4/2017 9:41:27 AM
@@ -23,7 +23,7 @@ If you are using the Intune PowerShell application ID (d1ddf0e4-d672-4dae-b554-9
 
 ### What you need to do to prepare
 
-Before May 6, 2024, update your PowerShell scripts by: 
+Before May 6, 2024, update your PowerShell scripts by:
 
 1) Creating a new app registration in the Microsoft Entra admin center. For detailed instructions, read: [Quickstart: Register an application with the Microsoft identity platform](https://learn.microsoft.com/entra/identity-platform/quickstart-register-app).
 2) Update scripts containing the Intune application ID (d1ddf0e4-d672-4dae-b554-9d5bdfd93547) with the new application ID created in step 1.
@@ -67,21 +67,21 @@ The following samples are included in this repository:
 The scripts are licensed "as-is." under the MIT License.
 
 #### Disclaimer
-Some script samples retrieve information from your Intune tenant, and others create, delete or update data in your Intune tenant.  Understand the impact of each sample script prior to running it; samples should be run using a non-production or "test" tenant account. 
+Some script samples retrieve information from your Intune tenant, and others create, delete or update data in your Intune tenant.  Understand the impact of each sample script prior to running it; samples should be run using a non-production or "test" tenant account.
 
 ## Using the Intune Graph API
-The Intune Graph API enables access to Intune information programmatically for your tenant, and the API performs the same Intune operations as those available through the Azure Portal.  
+The Intune Graph API enables access to Intune information programmatically for your tenant, and the API performs the same Intune operations as those available through the Azure Portal.
 
-Intune provides data into the Microsoft Graph in the same way as other cloud services do, with rich entity information and relationship navigation.  Use Microsoft Graph to combine information from other services and Intune to build rich cross-service applications for IT professionals or end users.     
+Intune provides data into the Microsoft Graph in the same way as other cloud services do, with rich entity information and relationship navigation.  Use Microsoft Graph to combine information from other services and Intune to build rich cross-service applications for IT professionals or end users.
 
 ## Prerequisites
 Use of these Microsoft Graph API Intune PowerShell samples requires the following:
-* Install the AzureAD PowerShell module by running 'Install-Module AzureAD' or 'Install-Module AzureADPreview' from an elevated PowerShell prompt
-* An Intune tenant which supports the Azure Portal with a production or trial license (https://docs.microsoft.com/en-us/intune-azure/introduction/what-is-microsoft-intune)
+* **Install the Microsoft.Graph.Authentication PowerShell module** by running `Install-Module Microsoft.Graph.Authentication` from an elevated PowerShell prompt
+* **Legacy Support**: AzureAD PowerShell module support is deprecated (Install-Module AzureAD or AzureADPreview)
+* An Intune tenant which supports the Azure Portal with a production or trial license (https://learn.microsoft.com/en-us/intune/intune-service/fundamentals/what-is-intune)
 * Using the Microsoft Graph APIs to configure Intune controls and policies requires an Intune license.
 * An account with permissions to administer the Intune Service
-* PowerShell v5.0 on Windows 10 x64 (PowerShell v4.0 is a minimum requirement for the scripts to function correctly)
-* Note: For PowerShell 4.0 you will require the [PowershellGet Module for PS 4.0](https://www.microsoft.com/en-us/download/details.aspx?id=51451) to enable the usage of the Install-Module functionality
+* PowerShell v5.0 or 7.x on Windows 11 x64 supported
 * First time usage of these scripts requires a Global Administrator of the Tenant to accept the permissions of the application
 
 ## Getting Started
@@ -93,19 +93,37 @@ After the prerequisites are installed or met, perform the following steps to use
 * Extract the files to a local folder (e.g. C:\IntuneGraphSamples)
 * Run PowerShell x64 from the start menu
 * Browse to the directory (e.g. cd C:\IntuneGraphSamples)
+* **Install Microsoft Graph Authentication module**: `Install-Module Microsoft.Graph.Authentication`
 * For each Folder in the local repository you can browse to that directory and then run the script of your choice
 * Example Application script usage:
   * To use the Manage Applications scripts, from C:\IntuneGraphSamples, run "cd .\Applications\"
   * Once in the folder run .\Application_MDM_Get.ps1 to get all MDM added applications
+  * **New**: Scripts automatically connect using `Connect-GraphAPI` with appropriate scopes
+  * **Multi-Cloud**: Use `-Environment` parameter for different Microsoft clouds
   This sequence of steps can be used for each folder....
 
 #### 2. Authentication with Microsoft Graph
-The first time you run these scripts you will be asked to provide an account to authenticate with the service:
+**Graph Authentication (Recommended):**
+The scripts now use the modern `Microsoft.Graph.Authentication` module. When you run any script, it will automatically:
+1. Call `Connect-GraphAPI` with the appropriate scopes for that script
+2. Prompt you to sign in through a web browser (more secure)
+3. Cache the authentication token for the PowerShell session
+
+```powershell
+# Examples of modern authentication
+Connect-GraphAPI                          # Global cloud with default scopes
+Connect-GraphAPI -Environment "USGov"     # US Government cloud
+Connect-GraphAPI -Environment "Germany"   # Germany cloud
+```
+
+**Legacy Authentication (Deprecated):**
+The first time you run legacy scripts you will be asked to provide an account to authenticate with the service:
 ```
 Please specify your user principal name for Azure Authentication:
 ```
 Once you have provided a user principal name a popup will open prompting for your password. After a successful authentication with Azure Active Directory the user token will last for an hour, once the hour expires within the PowerShell session you will be asked to re-authenticate.
 
+**Permission Consent:**
 If you are running the script for the first time against your tenant a popup will be presented stating:
 
 ```
@@ -125,6 +143,73 @@ Microsoft Intune PowerShell needs permission to:
 ```
 
 Note: If your user account is targeted for device based conditional access your device must be enrolled or compliant to pass authentication.
+
+## Recent Updates (August 2025)
+
+This repository has been modernized to use the latest Microsoft Graph PowerShell authentication methods and best practices. The following updates have been implemented:
+
+### 🔧 **Microsoft.Graph.Authentication Module**
+- **Updated Authentication**: All scripts now use `Microsoft.Graph.Authentication` module instead of legacy authentication methods
+- **Environment Support**: Added support for all Microsoft Cloud environments:
+  - **Global**: `https://graph.microsoft.com` (default)
+  - **US Government**: `https://graph.microsoft.us`
+  - **US Government DoD**: `https://dod-graph.microsoft.us`
+  - **China**: `https://microsoftgraph.chinacloudapi.cn`
+  - **Germany**: `https://graph.microsoft.de`
+
+### 🌐 **Multi-Cloud Environment Support**
+- **Dynamic Endpoint Management**: Scripts automatically use the correct Graph endpoint based on your environment
+- **Global Variables**: Added `$global:GraphEndpoint` variable for environment-aware operations
+- **Flexible Authentication**: Use `-Environment` parameter to connect to different clouds:
+  ```powershell
+  Connect-GraphAPI -Environment "USGov"    # US Government
+  Connect-GraphAPI -Environment "Germany"  # Germany Cloud
+  ```
+- **Removed Legacy Functions**: Eliminated old `Get-AuthToken` functions in favor of graph authentication
+
+### 📡 **Graph REST API Function**
+- **New `Invoke-IntuneRestMethod` Function**:
+  - Replaced `Invoke-RestMethod` with `Authtoken`
+  - Automatic paging support for large result sets
+  - Environment-aware URI handling (relative and absolute paths)
+  - Smart body parameter detection (JSON strings, plain strings, objects)
+  - Built-in error handling and verbose logging
+
+### 🔍 **Intelligent Parameter Handling**
+- **Type-Agnostic Body Parameters**: Automatically detects and handles:
+  - Valid JSON strings (used as-is)
+  - Plain text strings (properly quoted)
+  - PowerShell objects (converted to JSON)
+- **Automatic URI Conversion**: Seamlessly handles both relative and absolute URIs
+
+### 🛠 **Code Quality Improvements**
+- **Trailing Whitespace Cleanup**: Removed trailing whitespace from 4,593 lines across 133 files
+- **Character Encoding Fixes**: Fixed 96 en-dash characters (–) replaced with proper hyphens (-)
+- **Consistent Formatting**: Standardized code formatting across all scripts
+
+### 📋 **Scope Management**
+- **Automatic Scope Detection**: Scripts automatically determine required permissions based on operation type:
+  - **Read Operations**: Read-only scopes (`DeviceManagementConfiguration.Read.All`)
+  - **Write Operations**: ReadWrite scopes (`DeviceManagementConfiguration.ReadWrite.All`)
+  - **Context-Aware**: Different scopes for different resource types (Apps, Devices, Policies, etc.)
+
+### 🔄 **Backward Compatibility**
+- **Seamless Migration**: Existing script functionality remains the same
+- **Updated Examples**: All code examples updated to use graph authentication module
+
+### 🚀 **Getting Started with Modern Scripts**
+1. **Install Required Module**:
+   ```powershell
+   Install-Module Microsoft.Graph.Authentication
+   ```
+
+2. **Connect to Microsoft Graph**:
+   ```powershell
+   Connect-GraphAPI                          # Global cloud (default)
+   Connect-GraphAPI -Environment "USGov"     # US Government cloud
+   ```
+
+3. **Run Any Script**: All scripts now use the graph authentication automatically
 
 ## Contributing
 
@@ -146,6 +231,6 @@ Your feedback is important to us. Connect with us on Stack Overflow. Tag your qu
 * [Intune Graph Documentation](https://docs.microsoft.com/en-us/graph/api/resources/intune-graph-overview?view=graph-rest-1.0)
 
 ## Copyright
-Copyright (c) 2017 Microsoft. All rights reserved.
+Copyright (c) 2025 Microsoft. All rights reserved.
 
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.

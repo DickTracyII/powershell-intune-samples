@@ -1,4 +1,5 @@
 
+
 <#
 
 .COPYRIGHT
@@ -30,7 +31,8 @@ Requires Microsoft.Graph.Authentication module
     [CmdletBinding()]
     param(
         [string[]]$Scopes = @(
-            "DeviceManagementApps.Read.All"
+            "DeviceManagementConfiguration.ReadWrite.All",
+            "Group.Read.All"
         ),
         [ValidateSet("Global", "USGov", "USGovDod", "China", "Germany")]
         [string]$Environment = "Global"
@@ -203,6 +205,68 @@ Uses the global $GraphEndpoint variable for environment-specific endpoints
 
 ####################################################
 
+function Add-DeviceConfigurationPolicy {
+
+<#
+.SYNOPSIS
+This function is used to add an device configuration policy using the Graph API REST interface
+.DESCRIPTION
+The function connects to the Graph API Interface and adds a device configuration policy
+.EXAMPLE
+Add-DeviceConfigurationPolicy -JSON $JSON
+Adds a device configuration policy in Intune
+.NOTES
+NAME: Add-DeviceConfigurationPolicy
+#>
+
+[cmdletbinding()]
+
+param
+(
+    $JSON
+)
+
+$graphApiVersion = "Beta"
+$DCP_resource = "deviceManagement/deviceConfigurations"
+
+    try {
+
+        if("" -eq $JSON -or $null -eq $JSON){
+
+        write-host "No JSON specified, please specify valid JSON for the Android Policy..." -f Red
+
+        }
+
+        else {
+
+        Test-JSON -JSON $JSON
+
+        $uri = "$global:GraphEndpoint/$graphApiVersion/$($DCP_resource)"
+        Invoke-IntuneRestMethod -Uri $uri -Method POST -Body $JSON
+
+        }
+
+    }
+
+    catch {
+
+    $ex = $_.Exception
+    $errorResponse = $ex.Response.GetResponseStream()
+    $reader = New-Object System.IO.StreamReader($errorResponse)
+    $reader.BaseStream.Position = 0
+    $reader.DiscardBufferedData()
+    $responseBody = $reader.ReadToEnd();
+    Write-Host "Response content:`n$responseBody" -f Red
+    Write-Error "Request to $Uri failed with HTTP Status $($ex.Response.StatusCode) $($ex.Response.StatusDescription)"
+    write-host
+    break
+
+    }
+
+}
+
+####################################################
+
 function Test-JSON {
 
 <#
@@ -214,7 +278,7 @@ The function tests if the JSON passed to the REST Post is valid
 Test-JSON -JSON $JSON
 Test if the JSON is valid before calling the Graph REST interface
 .NOTES
-NAME: Test-JSON
+NAME: Test-AuthHeader
 #>
 
 param (
@@ -248,69 +312,6 @@ $JSON
 
 ####################################################
 
-function Add-ManagedAppPolicy {
-
-<#
-.SYNOPSIS
-This function is used to add an Managed App policy using the Graph API REST interface
-.DESCRIPTION
-The function connects to the Graph API Interface and adds a Managed App policy
-.EXAMPLE
-Add-ManagedAppPolicy -JSON $JSON
-Adds a Managed App policy in Intune
-.NOTES
-NAME: Add-ManagedAppPolicy
-#>
-
-[cmdletbinding()]
-
-param
-(
-    $JSON
-)
-
-$graphApiVersion = "Beta"
-$Resource = "deviceAppManagement/managedAppPolicies"
-
-    try {
-
-        if("" -eq $JSON -or $null -eq $JSON){
-
-        write-host "No JSON specified, please specify valid JSON for a Managed App Policy..." -f Red
-
-        }
-
-        else {
-
-        Test-JSON -JSON $JSON
-
-        $uri = "$global:GraphEndpoint/$graphApiVersion/$($Resource)"
-        Invoke-IntuneRestMethod -Uri $uri -Method POST -Body $JSON
-
-        }
-
-    }
-
-    catch {
-
-    Write-Host
-    $ex = $_.Exception
-    $errorResponse = $ex.Response.GetResponseStream()
-    $reader = New-Object System.IO.StreamReader($errorResponse)
-    $reader.BaseStream.Position = 0
-    $reader.DiscardBufferedData()
-    $responseBody = $reader.ReadToEnd();
-    Write-Host "Response content:`n$responseBody" -f Red
-    Write-Error "Request to $Uri failed with HTTP Status $($ex.Response.StatusCode) $($ex.Response.StatusDescription)"
-    write-host
-    break
-
-    }
-
-}
-
-####################################################
-
 #region Authentication
 
 # Connect to Microsoft Graph
@@ -323,41 +324,33 @@ if (-not (Connect-GraphAPI)) {
 
 ####################################################
 
-$ImportPath = Read-Host -Prompt "Please specify a path to a JSON file to import data from e.g. C:\IntuneOutput\Policies\policy.json"
+$JSON = @"
 
-# Replacing quotes for Test-Path
-$ImportPath = $ImportPath.replace('"','')
+    {
 
-if(!(Test-Path "$ImportPath")){
+    "displayName":"Windows 10 - Semi-Annual (Targeted)",
+    "description":"Windows 10 - Semi-Annual (Targeted)",
+    "@odata.type":"#microsoft.graph.windowsUpdateForBusinessConfiguration",
+    "businessReadyUpdatesOnly":"all",
+    "microsoftUpdateServiceAllowed":true,
+    "driversExcluded":false,
+    "featureUpdatesDeferralPeriodInDays":0,
+    "qualityUpdatesDeferralPeriodInDays":0,
+    "automaticUpdateMode":"autoInstallAtMaintenanceTime",
+    "deliveryOptimizationMode":"httpOnly",
 
-Write-Host "Import Path for JSON file doesn't exist..." -ForegroundColor Red
-Write-Host "Script can't continue..." -ForegroundColor Red
-Write-Host
-break
+        "installationSchedule":{
+        "@odata.type":"#microsoft.graph.windowsUpdateActiveHoursInstall",
+        "activeHoursStart":"08:00:00.0000000",
+        "activeHoursEnd":"17:00:00.0000000"
+        }
 
-}
+    }
+
+"@
 
 ####################################################
 
-$JSON_Data = gc "$ImportPath"
-
-# Excluding entries that are not required - id,createdDateTime,lastModifiedDateTime,version
-$JSON_Convert = $JSON_Data | ConvertFrom-Json | Select-Object -Property * -ExcludeProperty id,createdDateTime,lastModifiedDateTime,version,"@odata.context",apps@odata.context,deployedAppCount
-
-$JSON_Apps = $JSON_Convert.apps | select * -ExcludeProperty id,version
-
-$JSON_Convert | Add-Member -MemberType NoteProperty -Name 'apps' -Value @($JSON_Apps) -Force
-
-$DisplayName = $JSON_Convert.displayName
-
-$JSON_Output = $JSON_Convert | ConvertTo-Json -Depth 5
-
-write-host
-write-host "App Protection Policy '$DisplayName' Found..." -ForegroundColor Cyan
-write-host
-$JSON_Output
-Write-Host
-Write-Host "Adding App Protection Policy '$DisplayName'" -ForegroundColor Yellow
-Add-ManagedAppPolicy -JSON $JSON_Output
+Add-DeviceConfigurationPolicy -JSON $JSON
 
 

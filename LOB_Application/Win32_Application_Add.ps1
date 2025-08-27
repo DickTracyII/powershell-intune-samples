@@ -1,4 +1,4 @@
-﻿
+
 <#
 
 .COPYRIGHT
@@ -7,149 +7,201 @@ See LICENSE in the project root for license information.
 
 #>
 
-####################################################
 
-function Get-AuthToken {
-
+function Connect-GraphAPI {
 <#
 .SYNOPSIS
-This function is used to authenticate with the Graph API REST interface
+Connects to Microsoft Graph API with appropriate scopes for Intune operations
 .DESCRIPTION
-The function authenticate with the Graph API Interface with the tenant name
+This function connects to Microsoft Graph using the Microsoft.Graph.Authentication module
+.PARAMETER Scopes
+Array of permission scopes required for the operations
+.PARAMETER Environment
+The Microsoft Graph environment to connect to (Global, USGov, USGovDod, China, Germany)
 .EXAMPLE
-Get-AuthToken
-Authenticates you with the Graph API interface
+Connect-GraphAPI
+Connects to Microsoft Graph with default scopes
+.EXAMPLE
+Connect-GraphAPI -Environment "USGov"
+Connects to Microsoft Graph US Government environment
 .NOTES
-NAME: Get-AuthToken
+Requires Microsoft.Graph.Authentication module
 #>
-
-[cmdletbinding()]
-
-param
-(
-    [Parameter(Mandatory=$true)]
-    $User
-)
-
-$userUpn = New-Object "System.Net.Mail.MailAddress" -ArgumentList $User
-
-$tenant = $userUpn.Host
-
-Write-Host "Checking for AzureAD module..."
-
-    $AadModule = Get-Module -Name "AzureAD" -ListAvailable
-
-    if ($AadModule -eq $null) {
-
-        Write-Host "AzureAD PowerShell module not found, looking for AzureADPreview"
-        $AadModule = Get-Module -Name "AzureADPreview" -ListAvailable
-
-    }
-
-    if ($AadModule -eq $null) {
-        write-host
-        write-host "AzureAD Powershell module not installed..." -f Red
-        write-host "Install by running 'Install-Module AzureAD' or 'Install-Module AzureADPreview' from an elevated PowerShell prompt" -f Yellow
-        write-host "Script can't continue..." -f Red
-        write-host
-        exit
-    }
-
-# Getting path to ActiveDirectory Assemblies
-# If the module count is greater than 1 find the latest version
-
-    if($AadModule.count -gt 1){
-
-        $Latest_Version = ($AadModule | select version | Sort-Object)[-1]
-
-        $aadModule = $AadModule | ? { $_.version -eq $Latest_Version.version }
-
-            # Checking if there are multiple versions of the same module found
-
-            if($AadModule.count -gt 1){
-
-            $aadModule = $AadModule | select -Unique
-
-            }
-
-        $adal = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.dll"
-        $adalforms = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.Platform.dll"
-
-    }
-
-    else {
-
-        $adal = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.dll"
-        $adalforms = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.Platform.dll"
-
-    }
-
-[System.Reflection.Assembly]::LoadFrom($adal) | Out-Null
-
-[System.Reflection.Assembly]::LoadFrom($adalforms) | Out-Null
-
-# Using this authentication method requires a clientID.  Register a new app in the Entra ID admin center to obtain a clientID.  More information
-# on app registration and clientID is available here: https://learn.microsoft.com/entra/identity-platform/quickstart-register-app 
-
-$clientId = "<replace with your clientID>"
-
-$redirectUri = "urn:ietf:wg:oauth:2.0:oob"
-
-$resourceAppIdURI = "https://graph.microsoft.com"
-
-$authority = "https://login.microsoftonline.com/$Tenant"
+    [CmdletBinding()]
+    param(
+        [string[]]$Scopes = @(
+            "DeviceManagementApps.ReadWrite.All",
+            "Group.Read.All"
+        ),
+        [ValidateSet("Global", "USGov", "USGovDod", "China", "Germany")]
+        [string]$Environment = "Global"
+    )
 
     try {
+        # Set global Graph endpoint based on environment
+        switch ($Environment) {
+            "Global" { $global:GraphEndpoint = "https://graph.microsoft.com" }
+            "USGov" { $global:GraphEndpoint = "https://graph.microsoft.us" }
+            "USGovDod" { $global:GraphEndpoint = "https://dod-graph.microsoft.us" }
+            "China" { $global:GraphEndpoint = "https://microsoftgraph.chinacloudapi.cn" }
+            "Germany" { $global:GraphEndpoint = "https://graph.microsoft.de" }
+            default { $global:GraphEndpoint = "https://graph.microsoft.com" }
+        }
 
-    $authContext = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.AuthenticationContext" -ArgumentList $authority
+        Write-Host "Graph Endpoint: $global:GraphEndpoint" -ForegroundColor Magenta
+        # Check if Microsoft.Graph.Authentication module is available
+        if (-not (Get-Module -Name Microsoft.Graph.Authentication -ListAvailable)) {
+            Write-Error "Microsoft.Graph.Authentication module not found. Please install it using: Install-Module Microsoft.Graph.Authentication"
+            return $false
+        }
 
-    # https://msdn.microsoft.com/en-us/library/azure/microsoft.identitymodel.clients.activedirectory.promptbehavior.aspx
-    # Change the prompt behaviour to force credentials each time: Auto, Always, Never, RefreshSession
+        # Import the module if not already loaded
+        if (-not (Get-Module -Name Microsoft.Graph.Authentication)) {
+            Import-Module Microsoft.Graph.Authentication -Force
+        }
 
-    $platformParameters = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.PlatformParameters" -ArgumentList "Auto"
+        # Connect to Microsoft Graph
+        Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
+        Connect-MgGraph -Scopes $Scopes -Environment $Environment -NoWelcome
 
-    $userId = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.UserIdentifier" -ArgumentList ($User, "OptionalDisplayableId")
+        # Verify connection
+        $context = Get-MgContext
+        if ($context) {
+            Write-Host "Successfully connected to Microsoft Graph!" -ForegroundColor Green
+            Write-Host "Tenant ID: $($context.TenantId)" -ForegroundColor Yellow
+            Write-Host "Account: $($context.Account)" -ForegroundColor Yellow
+            Write-Host "Environment: $($context.Environment)" -ForegroundColor Yellow
+            Write-Host "Scopes: $($context.Scopes -join ', ')" -ForegroundColor Yellow
+            return $true
+        }
+        else {
+            Write-Error "Failed to establish connection to Microsoft Graph"
+            return $false
+        }
+    }
+    catch {
+        Write-Error "Error connecting to Microsoft Graph: $($_.Exception.Message)"
+        return $false
+    }
+}
 
-    $authResult = $authContext.AcquireTokenAsync($resourceAppIdURI,$clientId,$redirectUri,$platformParameters,$userId).Result
+function Invoke-IntuneRestMethod {
+<#
+.SYNOPSIS
+Invokes Microsoft Graph REST API calls with automatic paging support
+.DESCRIPTION
+This function makes REST API calls to Microsoft Graph with built-in error handling and automatic paging for large result sets
+.PARAMETER Uri
+The Microsoft Graph URI to call (can be relative path or full URL)
+.PARAMETER Method
+The HTTP method to use (GET, POST, PUT, DELETE, PATCH)
+.PARAMETER Body
+The request body for POST/PUT/PATCH operations
+.PARAMETER ContentType
+The content type for the request (default: application/json)
+.EXAMPLE
+Invoke-IntuneRestMethod -Uri "v1.0/deviceManagement/deviceConfigurations" -Method GET
+.EXAMPLE
+Invoke-IntuneRestMethod -Uri "v1.0/deviceManagement/deviceConfigurations" -Method GET
+.NOTES
+Requires an active Microsoft Graph connection via Connect-MgGraph
+Uses the global $GraphEndpoint variable for environment-specific endpoints
+#>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
 
-        # If the accesstoken is valid then create the authentication header
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('GET', 'POST', 'PUT', 'DELETE', 'PATCH')]
+        [string]$Method = 'GET',
 
-        if($authResult.AccessToken){
+        [Parameter(Mandatory = $false)]
+        [object]$Body = $null,
 
-        # Creating header for Authorization token
+        [Parameter(Mandatory = $false)]
+        [string]$ContentType = 'application/json'
+    )
 
-        $authHeader = @{
-            'Content-Type'='application/json'
-            'Authorization'="Bearer " + $authResult.AccessToken
-            'ExpiresOn'=$authResult.ExpiresOn
+    try {
+        # Ensure we have a Graph endpoint set
+        if (-not $global:GraphEndpoint) {
+            $global:GraphEndpoint = "https://graph.microsoft.com"
+            Write-Warning "No Graph endpoint set, defaulting to: $global:GraphEndpoint"
+        }
+
+        # Handle both relative and absolute URIs
+        if (-not $Uri.StartsWith("http")) {
+            $Uri = "$global:GraphEndpoint/$Uri"
+        }
+
+        $results = @()
+        $nextLink = $Uri
+
+        do {
+            Write-Verbose "Making request to: $nextLink"
+
+            $requestParams = @{
+                Uri = $nextLink
+                Method = $Method
+                ContentType = $ContentType
             }
 
-        return $authHeader
+            if ($Body) {
+                if ($Body -is [string]) {
+                    # Check if the string is valid JSON by trying to parse it
+                    try {
+                        $null = $Body | ConvertFrom-Json -ErrorAction Stop
+                        # If we get here, it's valid JSON - use as-is
+                        $requestParams.Body = $Body
+                        Write-Verbose "Body detected as JSON string"
+                    }
+                    catch {
+                        # String is not valid JSON, treat as plain string and wrap in quotes
+                        $requestParams.Body = "`"$($Body)`""
+                        Write-Verbose "Body detected as plain string, wrapping in quotes"
+                    }
+                } else {
+                    # Body is an object (hashtable, PSCustomObject, etc.), convert to JSON
+                    $requestParams.Body = $Body | ConvertTo-Json -Depth 10
+                    Write-Verbose "Body detected as object, converting to JSON"
+                }
+            }
 
-        }
+            $response = Invoke-MgGraphRequest @requestParams
 
-        else {
+            # Handle paging
+            if ($response.value) {
+                $results += $response.value
+                $nextLink = $response.'@odata.nextLink'
+            }
+            else {
+                $results += $response
+                $nextLink = $null
+            }
 
-        Write-Host
-        Write-Host "Authorization Access Token is null, please re-run authentication..." -ForegroundColor Red
-        Write-Host
-        break
+        } while ($nextLink)
 
-        }
-
+        return $results
     }
-
     catch {
-
-    write-host $_.Exception.Message -f Red
-    write-host $_.Exception.ItemName -f Red
-    write-host
-    break
-
+        $errorMessage = $_.Exception.Message
+        if ($_.Exception.Response) {
+            $statusCode = $_.Exception.Response.StatusCode
+            Write-Error "Graph API request failed with status $statusCode : $errorMessage"
+        }
+        else {
+            Write-Error "Graph API request failed: $errorMessage"
+        }
+        throw
     }
-
 }
- 
+
+####################################################
+
+####################################################
+
+
 ####################################################
 
 function CloneObject($object){
@@ -182,7 +234,7 @@ function MakeGetRequest($collectionPath){
 
 	$uri = "$baseUrl$collectionPath";
 	$request = "GET $uri";
-	
+
 	if ($logRequestUris) { Write-Host $request; }
 	if ($logHeaders) { WriteHeaders $authToken; }
 
@@ -222,7 +274,7 @@ function MakeRequest($verb, $collectionPath, $body){
 
 	$uri = "$baseUrl$collectionPath";
 	$request = "$verb $uri";
-	
+
 	$clonedHeaders = CloneObject $authToken;
 	$clonedHeaders["content-length"] = $body.Length;
 	$clonedHeaders["content-type"] = "application/json";
@@ -310,16 +362,16 @@ function UploadFileToAzureStorage($sasUri, $filepath, $fileUri){
 	try {
 
         $chunkSizeInBytes = 1024l * 1024l * $azureStorageUploadChunkSizeInMb;
-		
+
 		# Start the timer for SAS URI renewal.
 		$sasRenewalTimer = [System.Diagnostics.Stopwatch]::StartNew()
-		
+
 		# Find the file size and open the file.
 		$fileSize = (Get-Item $filepath).length;
 		$chunks = [Math]::Ceiling($fileSize / $chunkSizeInBytes);
 		$reader = New-Object System.IO.BinaryReader([System.IO.File]::Open($filepath, [System.IO.FileMode]::Open));
 		$position = $reader.BaseStream.Seek(0, [System.IO.SeekOrigin]::Begin);
-		
+
 		# Upload each chunk. Check whether a SAS URI renewal is required after each chunk is uploaded and renew if needed.
 		$ids = @();
 
@@ -331,20 +383,20 @@ function UploadFileToAzureStorage($sasUri, $filepath, $fileUri){
 			$start = $chunk * $chunkSizeInBytes;
 			$length = [Math]::Min($chunkSizeInBytes, $fileSize - $start);
 			$bytes = $reader.ReadBytes($length);
-			
-			$currentChunk = $chunk + 1;			
+
+			$currentChunk = $chunk + 1;
 
             Write-Progress -Activity "Uploading File to Azure Storage" -status "Uploading chunk $currentChunk of $chunks" `
             -percentComplete ($currentChunk / $chunks*100)
 
             $uploadResponse = UploadAzureStorageChunk $sasUri $id $bytes;
-			
+
 			# Renew the SAS URI if 7 minutes have elapsed since the upload started or was renewed last.
 			if ($currentChunk -lt $chunks -and $sasRenewalTimer.ElapsedMilliseconds -ge 450000){
 
 				$renewalResponse = RenewAzureStorageUpload $fileUri;
 				$sasRenewalTimer.Restart();
-			
+
             }
 
 		}
@@ -357,10 +409,10 @@ function UploadFileToAzureStorage($sasUri, $filepath, $fileUri){
 
 	finally {
 
-		if ($reader -ne $null) { $reader.Dispose(); }
-	
+		if ($null -ne $reader) { $reader.Dispose(); }
+
     }
-	
+
 	# Finalize the upload.
 	$uploadResponse = FinalizeAzureStorageUpload $sasUri $ids;
 
@@ -373,7 +425,7 @@ function RenewAzureStorageUpload($fileUri){
 	$renewalUri = "$fileUri/renewUpload";
 	$actionBody = "";
 	$rewnewUriResult = MakePostRequest $renewalUri $actionBody;
-	
+
 	$file = WaitForFileProcessing $fileUri "AzureStorageUriRenewal" $azureStorageRenewSasUriBackOffTimeInSeconds;
 
 }
@@ -409,7 +461,7 @@ function WaitForFileProcessing($fileUri, $stage){
 		$attempts--;
 	}
 
-	if ($file -eq $null -or $file.uploadState -ne $successState)
+	if ($null -eq $file -or $file.uploadState -ne $successState)
 	{
 		throw "File request did not complete in the allotted time.";
 	}
@@ -419,7 +471,7 @@ function WaitForFileProcessing($fileUri, $stage){
 
 ####################################################
 
-function GetWin32AppBody(){
+function GetWin32AppBody {
 
 param
 (
@@ -575,7 +627,7 @@ function GetAppCommitBody($contentVersionId, $LobType){
 
 ####################################################
 
-Function Test-SourceFile(){
+function Test-SourceFile {
 
 param
 (
@@ -608,7 +660,7 @@ param
 
 ####################################################
 
-Function New-DetectionRule(){
+function New-DetectionRule {
 
 [cmdletbinding()]
 
@@ -641,11 +693,11 @@ param
  [parameter(Mandatory=$true,ParameterSetName = "MSI")]
  [ValidateNotNullOrEmpty()]
  [String]$MSIproductCode,
-   
+
  [parameter(Mandatory=$true,ParameterSetName = "File")]
  [ValidateNotNullOrEmpty()]
  [String]$Path,
- 
+
  [parameter(Mandatory=$true,ParameterSetName = "File")]
  [ValidateNotNullOrEmpty()]
  [string]$FileOrFolderName,
@@ -682,7 +734,7 @@ param
     if($PowerShell){
 
         if(!(Test-Path "$ScriptFile")){
-            
+
             Write-Host
             Write-Host "Could not find file '$ScriptFile'..." -ForegroundColor Red
             Write-Host "Script can't continue..." -ForegroundColor Red
@@ -690,18 +742,18 @@ param
             break
 
         }
-        
+
         $ScriptContent = [System.Convert]::ToBase64String([System.IO.File]::ReadAllBytes("$ScriptFile"));
-        
+
         $DR = @{ "@odata.type" = "#microsoft.graph.win32LobAppPowerShellScriptDetection" }
         $DR.enforceSignatureCheck = $false;
         $DR.runAs32Bit = $false;
         $DR.scriptContent =  "$ScriptContent";
 
     }
-    
+
     elseif($MSI){
-    
+
         $DR = @{ "@odata.type" = "#microsoft.graph.win32LobAppProductCodeDetection" }
         $DR.productVersionOperator = "notConfigured";
         $DR.productCode = "$MsiProductCode";
@@ -710,7 +762,7 @@ param
     }
 
     elseif($File){
-    
+
         $DR = @{ "@odata.type" = "#microsoft.graph.win32LobAppFileSystemDetection" }
         $DR.check32BitOn64System = "$check32BitOn64System";
         $DR.detectionType = "$FileDetectionType";
@@ -722,7 +774,7 @@ param
     }
 
     elseif($Registry){
-    
+
         $DR = @{ "@odata.type" = "#microsoft.graph.win32LobAppRegistryDetection" }
         $DR.check32BitOn64System = "$check32BitRegOn64System";
         $DR.detectionType = "$RegistryDetectionType";
@@ -739,7 +791,7 @@ param
 
 ####################################################
 
-function Get-DefaultReturnCodes(){
+function Get-DefaultReturnCodes {
 
 @{"returnCode" = 0;"type" = "success"}, `
 @{"returnCode" = 1707;"type" = "success"}, `
@@ -751,7 +803,7 @@ function Get-DefaultReturnCodes(){
 
 ####################################################
 
-function New-ReturnCode(){
+function New-ReturnCode {
 
 param
 (
@@ -768,7 +820,7 @@ $type
 
 ####################################################
 
-Function Get-IntuneWinXML(){
+function Get-IntuneWinXML {
 
 param
 (
@@ -808,7 +860,7 @@ if($removeitem -eq "true"){ remove-item "$Directory\$filename" }
 
 ####################################################
 
-Function Get-IntuneWinFile(){
+function Get-IntuneWinFile {
 
 param
 (
@@ -849,7 +901,7 @@ $fileName,
 
 ####################################################
 
-function Upload-Win32Lob(){
+function Upload-Win32Lob {
 
 <#
 .SYNOPSIS
@@ -922,7 +974,7 @@ param
         # If displayName input don't use Name from detection.xml file
         if($displayName){ $DisplayName = $displayName }
         else { $DisplayName = $DetectionXML.ApplicationInfo.Name }
-        
+
         $FileName = $DetectionXML.ApplicationInfo.FileName
 
         $SetupFileName = $DetectionXML.ApplicationInfo.SetupFile
@@ -942,7 +994,7 @@ param
             $MsiPublisher = $DetectionXML.ApplicationInfo.MsiInfo.MsiPublisher
             $MsiRequiresReboot = $DetectionXML.ApplicationInfo.MsiInfo.MsiRequiresReboot
             $MsiUpgradeCode = $DetectionXML.ApplicationInfo.MsiInfo.MsiUpgradeCode
-            
+
             if($MsiRequiresReboot -eq "false"){ $MsiRequiresReboot = $false }
             elseif($MsiRequiresReboot -eq "true"){ $MsiRequiresReboot = $true }
 
@@ -992,7 +1044,7 @@ param
         #ReturnCodes
 
         if($returnCodes){
-        
+
         $mobileAppBody | Add-Member -MemberType NoteProperty -Name 'returnCodes' -Value @($returnCodes)
 
         }
@@ -1047,7 +1099,7 @@ param
 		$fileBody = GetAppFileBody "$FileName" $Size $EncrySize $null;
 		$filesUri = "mobileApps/$appId/$LOBType/contentVersions/$contentVersionId/files";
 		$file = MakePostRequest $filesUri ($fileBody | ConvertTo-Json);
-	
+
 		# Wait for the service to process the new file request.
         Write-Host
         Write-Host "Waiting for the file entry URI to be created..." -ForegroundColor Yellow
@@ -1087,20 +1139,20 @@ param
         Write-Host "Sleeping for $sleep seconds to allow patch completion..." -f Magenta
         Start-Sleep $sleep
         Write-Host
-    
+
     }
-	
+
     catch {
 
 		Write-Host "";
 		Write-Host -ForegroundColor Red "Aborting with exception: $($_.Exception.ToString())";
-	
+
     }
 }
 
 ####################################################
 
-Function Test-AuthToken(){
+function Test-AuthToken {
 
     # Checking if authToken exists before running authentication
     if($global:authToken){
@@ -1118,23 +1170,23 @@ Function Test-AuthToken(){
 
                 # Defining Azure AD tenant name, this is the name of your Azure Active Directory (do not use the verified domain name)
 
-                if($User -eq $null -or $User -eq ""){
+                if($null -eq $User -or "" -eq $User){
 
                 $Global:User = Read-Host -Prompt "Please specify your user principal name for Azure Authentication"
                 Write-Host
 
                 }
 
-            $global:authToken = Get-AuthToken -User $User
+            $global:authToken = Connect-GraphAPIr $User
 
             }
     }
 
-    # Authentication doesn't exist, calling Get-AuthToken function
+    # Authentication doesn't exist, calling Connect-GraphAPInction
 
     else {
 
-        if($User -eq $null -or $User -eq ""){
+        if($null -eq $User -or "" -eq $User){
 
             $Global:User = Read-Host -Prompt "Please specify your user principal name for Azure Authentication"
             Write-Host
@@ -1142,7 +1194,7 @@ Function Test-AuthToken(){
         }
 
     # Getting the authorization token
-    $global:authToken = Get-AuthToken -User $User
+    $global:authToken = Connect-GraphAPIr $User
 
     }
 }
@@ -1153,7 +1205,7 @@ Test-AuthToken
 
 ####################################################
 
-$baseUrl = "https://graph.microsoft.com/beta/deviceAppManagement/"
+$baseUrl = "beta/deviceAppManagement/"
 
 $logRequestUris = $true;
 $logHeaders = $false;
@@ -1196,3 +1248,4 @@ Upload-Win32Lob -SourceFile "$SourceFile" -publisher "Publisher" `
 -uninstallCmdLine "powershell.exe .\uninstall.ps1"
 
 ####################################################
+

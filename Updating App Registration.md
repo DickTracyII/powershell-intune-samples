@@ -1,8 +1,8 @@
-If you use "**Connect-msgraph**" or use the ClientID “**d1ddf0e4-d672-4dae-b554-9d5bdfd93547”** in your PowerShell scripts, you need to update your ClientID.
+If you use legacy authentication methods or the deprecated ClientID "**d1ddf0e4-d672-4dae-b554-9d5bdfd93547"** in your PowerShell scripts, you need to update to use the modern Microsoft.Graph.Authentication module with **Connect-MgGraph**. if your using "**Connect-msgraph**" or use the ClientID “**d1ddf0e4-d672-4dae-b554-9d5bdfd93547”** in your PowerShell scripts, you need to update your ClientID.
 
-Option 1: Migrate your old application (Microsoft Intune PowerShell) to your own application to access Graph. [Update to Microsoft Intune PowerShell example script repository on GitHub - Microsoft Community Hub](https://techcommunity.microsoft.com/t5/intune-customer-success/update-to-microsoft-intune-powershell-example-script-repository/ba-p/3842452)
+Option 1: Migrate your existing application to use the SDK's _Microsoft.Graph.Authentication_ module. [Update to Microsoft Graph PowerShell SDK - Microsoft Graph | Microsoft Learn](https://learn.microsoft.com/en-us/powershell/microsoftgraph/installation?view=graph-powershell-1.0)
 
-Option 2: Register app in Entra ID and give Intune Graph permission in it:
+Option 2: Register a new app in Entra ID and configure it for Microsoft Graph access:
 
 [Quickstart: Register an app in the Microsoft identity platform - Microsoft identity platform | Microsoft Learn](https://learn.microsoft.com/en-au/entra/identity-platform/quickstart-register-app)
 
@@ -36,31 +36,71 @@ Your App registration is done.
 
 To modify your PowerShell scripts:
 
-**If you are using the legacy Intune PowerShell module (MsGraph)**
+**Using the Microsoft.Graph.Authentication Module (Recommended)**
 
-Add the following before the line in your script: "connect-MsGraph":
+Install the Microsoft Graph PowerShell SDK if not already installed:
+```powershell
+Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
+```
 
-**_Update-MSGraphEnvironment -AppId {replace here with your app id}_**
+**For Delegated Authentication (Interactive Login):**
+```powershell
+# Connect interactively
+Connect-MgGraph -Scopes "DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementApps.ReadWrite.All"
 
-Sample script for delegated access.
+# Verify connection
+Get-MgContext
+```
 
-**_Update-MSGraphEnvironment -AppId {replace here with your app ID}_**
+**For Application Authentication (Client Credentials):**
+```powershell
+# Define the Tenant ID, Client ID, and Client Secret
+$TenantId = "your-tenant-id"
+$ClientId = "your-client-id"
+$ClientSecret = "your-client-secret"
 
-**_$adminUPN = Read-Host -Prompt "Enter UPN"  
-$adminPwd = Read-Host -AsSecureString -Prompt "Enter password for $adminUPN"_**
+# Convert the Client Secret to a Secure String
+$SecureClientSecret = ConvertTo-SecureString -String $ClientSecret -AsPlainText -Force
 
+# Create a PSCredential object
+$ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ClientId, $SecureClientSecret
+
+# Connect to Microsoft Graph using the Tenant ID and Client Secret Credential
+Connect-MgGraph -TenantId $TenantId -ClientSecretCredential $ClientSecretCredential
+
+# Verify connection
+Get-MgContext
+```
+
+**For Certificate-Based Authentication:**
+```powershell
+# Connect using certificate thumbprint
+Connect-MgGraph -ClientId "your-client-id" -TenantId "your-tenant-id" -CertificateThumbprint "your-cert-thumbprint"
+```
+
+**Legacy Methods (Deprecated - Update Required)**
+
+~~The following methods are deprecated and should be updated to use Connect-MgGraph:~~
+
+**Legacy MSGraph Module (Deprecated):**
+```powershell
+# OLD METHOD - DO NOT USE
+Update-MSGraphEnvironment -AppId {your app id}
+$adminUPN = Read-Host -Prompt "Enter UPN"  
+$adminPwd = Read-Host -AsSecureString -Prompt "Enter password for $adminUPN"
 $credential = New-Object System.Management.Automation.PsCredential($adminUPN, $adminPwd)
-
 Connect-MSGraph -PSCredential $credential
+```
 
-If we use MSAL to access, we can replace clientId with our new application ID.
-
-\[System.Reflection.Assembly\]::LoadFrom($adal) | Out-Null
-
-\[System.Reflection.Assembly\]::LoadFrom($adalforms) | Out-Null
-
-$clientId = "&lt;replace with your clientID&gt;"
-
+**Legacy MSAL Method (Deprecated):**
+```powershell
+# OLD METHOD - DO NOT USE
+[System.Reflection.Assembly]::LoadFrom($adal) | Out-Null
+[System.Reflection.Assembly]::LoadFrom($adalforms) | Out-Null
+$clientId = "<replace with your clientID>"
 $redirectUri = "urn:ietf:wg:oauth:2.0:oob"
+$resourceAppIdURI = "https://graph.microsoft.com"
+```
 
-$resourceAppIdURI = "<https://graph.microsoft.com>"
+**Migration Path:**
+Replace all legacy authentication methods with the modern `Connect-MgGraph` examples shown above. The Microsoft.Graph.Authentication module provides better security, multi-cloud support, and is actively maintained.
